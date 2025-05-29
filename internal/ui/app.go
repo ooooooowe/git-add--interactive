@@ -99,7 +99,7 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 		return fmt.Errorf("unknown patch mode: %s", mode)
 	}
 
-	files, err := a.repo.ListModified(patchMode.Filter)
+	files, err := a.repo.ListModifiedWithRevision(patchMode.Filter, revision)
 	if err != nil {
 		return err
 	}

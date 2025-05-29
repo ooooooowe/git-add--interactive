@@ -17,11 +17,18 @@ type FileStatus struct {
 }
 
 func (r *Repository) ListModified(filter string) ([]FileStatus, error) {
+	return r.ListModifiedWithRevision(filter, "")
+}
+
+func (r *Repository) ListModifiedWithRevision(filter, revision string) ([]FileStatus, error) {
 	var files []FileStatus
 	statusMap := make(map[string]*FileStatus)
 
 	reference := "HEAD"
-	if r.IsInitialCommit() {
+	if revision != "" {
+		reference = revision
+	}
+	if r.IsInitialCommit() && reference == "HEAD" {
 		emptyTree, err := r.GetEmptyTree()
 		if err != nil {
 			return nil, err
