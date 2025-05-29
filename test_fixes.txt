@@ -1,0 +1,5 @@
+Test file with function keyword
+This line has no matches
+Another function reference here
+Normal line without keywordAdded line with function
+Added normal line

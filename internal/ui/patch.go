@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -139,6 +140,17 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 		return nil
 	}
 
+	// Apply global filter if one is set
+	if a.globalFilter != "" {
+		filteredHunks := a.filterHunksByRegex(actualHunks, a.globalFilter)
+		if len(filteredHunks) == 0 {
+			fmt.Printf("No hunks in this file match global filter: %s\n", a.globalFilter)
+			return nil
+		}
+		fmt.Printf("Applied global filter '%s': showing %d of %d hunks\n", a.globalFilter, len(filteredHunks), len(actualHunks))
+		actualHunks = filteredHunks
+	}
+
 	ix := 0
 	for {
 		if ix >= len(actualHunks) {
@@ -167,7 +179,11 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 		}
 
 		prompt := fmt.Sprintf(patchPrompts[mode.Name][promptKey], other)
-		fmt.Printf("(%d/%d) %s", ix+1, len(actualHunks), a.colored(a.colors.PromptColor, prompt))
+		filterStatus := ""
+		if a.globalFilter != "" {
+			filterStatus = fmt.Sprintf(" [filter: %s]", a.globalFilter)
+		}
+		fmt.Printf("(%d/%d)%s %s", ix+1, len(actualHunks), filterStatus, a.colored(a.colors.PromptColor, prompt))
 
 		input, err := a.promptSingleChar()
 		if err != nil {
@@ -276,19 +292,98 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 			}
 
 		case 'g':
-			fmt.Print("go to which hunk? ")
-			gotoInput, err := a.promptSingleChar()
+			if strings.ToUpper(input) == "G" || (len(input) > 1 && strings.ToUpper(input)[0:1] == "G") {
+				// G <regex> command for global filtering
+				regexStr := strings.TrimSpace(input[1:])
+				if regexStr == "" {
+					fmt.Print("search for which pattern (empty to clear global filter)? ")
+					regexInput, err := a.promptSingleChar()
+					if err != nil {
+						continue
+					}
+					regexStr = strings.TrimSpace(regexInput)
+				}
+				
+				if regexStr == "" {
+					// Clear global filter
+					a.globalFilter = ""
+					fmt.Println("Global filter cleared")
+					// Reparse the current file without filter
+					hunks, err := a.repo.ParseDiff(path, mode, revision)
+					if err != nil {
+						a.printError(fmt.Sprintf("Error reparsing hunks: %v\n", err))
+						continue
+					}
+					actualHunks = hunks[1:]
+					ix = 0
+					continue
+				}
+				
+				// Set global filter
+				a.globalFilter = regexStr
+				
+				// Filter current hunks and replace current hunks list
+				filteredHunks := a.filterHunksByRegex(actualHunks, regexStr)
+				if len(filteredHunks) == 0 {
+					a.printError(fmt.Sprintf("No hunks in current file match pattern: %s\n", regexStr))
+					continue
+				}
+				
+				fmt.Printf("Global filter set to '%s': showing %d hunks in current file\n", regexStr, len(filteredHunks))
+				actualHunks = filteredHunks
+				ix = 0
+				continue
+			} else {
+				// Original 'g' command for goto hunk number
+				fmt.Print("go to which hunk? ")
+				gotoInput, err := a.promptSingleChar()
+				if err != nil {
+					continue
+				}
+				if gotoNum, err := strconv.Atoi(gotoInput); err == nil {
+					if gotoNum >= 1 && gotoNum <= len(actualHunks) {
+						ix = gotoNum - 1
+					} else {
+						a.printError(fmt.Sprintf("Sorry, only %d hunks available.\n", len(actualHunks)))
+					}
+				} else {
+					a.printError(fmt.Sprintf("Invalid number: '%s'\n", gotoInput))
+				}
+			}
+
+		case '/':
+			// Search within current file hunks (same as G but doesn't set global filter)
+			fmt.Print("search for which pattern? ")
+			regexInput, err := a.promptSingleChar()
 			if err != nil {
 				continue
 			}
-			if gotoNum, err := strconv.Atoi(gotoInput); err == nil {
-				if gotoNum >= 1 && gotoNum <= len(actualHunks) {
-					ix = gotoNum - 1
-				} else {
-					a.printError(fmt.Sprintf("Sorry, only %d hunks available.\n", len(actualHunks)))
+			regexStr := strings.TrimSpace(regexInput)
+			if regexStr == "" {
+				continue
+			}
+			
+			// Find first matching hunk starting from current position
+			found := false
+			for i := ix + 1; i < len(actualHunks); i++ {
+				if a.hunkMatchesRegex(&actualHunks[i], regexStr) {
+					ix = i
+					found = true
+					break
 				}
-			} else {
-				a.printError(fmt.Sprintf("Invalid number: '%s'\n", gotoInput))
+			}
+			if !found {
+				// Search from beginning
+				for i := 0; i <= ix; i++ {
+					if a.hunkMatchesRegex(&actualHunks[i], regexStr) {
+						ix = i
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				a.printError(fmt.Sprintf("Pattern not found: %s\n", regexStr))
 			}
 
 		case '?':
@@ -297,7 +392,9 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 				help = patchHelp["stage"]
 			}
 			help += `
+/ - search for a pattern in current file
 g - select a hunk to go to
+G - set global filter for all files (empty pattern clears filter)
 j - leave this hunk undecided, see next undecided hunk
 k - leave this hunk undecided, see previous undecided hunk
 s - split the current hunk into smaller hunks
@@ -369,6 +466,9 @@ func (a *App) buildOtherOptions(hunks []git.Hunk, currentIx int) string {
 	if len(hunks) > 1 {
 		options = append(options, "g")
 	}
+	
+	// Always show G for global filter
+	options = append(options, "G")
 
 	hunk := &hunks[currentIx]
 	if a.repo.HunkSplittable(hunk) {
@@ -467,6 +567,39 @@ func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode, header git.Hunk) (*gi
 	}
 
 	return newHunk, nil
+}
+
+func (a *App) hunkMatchesRegex(hunk *git.Hunk, regexStr string) bool {
+	regex, err := regexp.Compile(regexStr)
+	if err != nil {
+		return false
+	}
+
+	for _, line := range hunk.Text {
+		if regex.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) filterHunksByRegex(hunks []git.Hunk, regexStr string) []git.Hunk {
+	// Validate regex first
+	_, err := regexp.Compile(regexStr)
+	if err != nil {
+		a.printError(fmt.Sprintf("Invalid regex pattern: %v\n", err))
+		return nil
+	}
+
+	var filteredHunks []git.Hunk
+
+	for _, hunk := range hunks {
+		if a.hunkMatchesRegex(&hunk, regexStr) {
+			filteredHunks = append(filteredHunks, hunk)
+		}
+	}
+
+	return filteredHunks
 }
 
 func (a *App) reassemblePatch(hunks []git.Hunk) []byte {

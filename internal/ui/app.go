@@ -12,8 +12,9 @@ import (
 )
 
 type App struct {
-	repo   *git.Repository
-	colors ColorConfig
+	repo         *git.Repository
+	colors       ColorConfig
+	globalFilter string // Global regex filter for all files
 }
 
 type ColorConfig struct {
