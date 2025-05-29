@@ -251,7 +251,7 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 			}
 
 		case 'e':
-			newHunk, err := a.editHunk(hunk, mode)
+			newHunk, err := a.editHunk(hunk, mode, hunks[0])
 			if err != nil {
 				a.printError(fmt.Sprintf("Error editing hunk: %v\n", err))
 				continue
@@ -384,7 +384,7 @@ func (a *App) buildOtherOptions(hunks []git.Hunk, currentIx int) string {
 	return ""
 }
 
-func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode) (*git.Hunk, error) {
+func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode, header git.Hunk) (*git.Hunk, error) {
 	hunkFile := filepath.Join(a.repo.GitDir(), "addp-hunk-edit.diff")
 
 	content := "# Manual hunk edit mode -- see bottom for a quick guide.\n"
@@ -457,13 +457,13 @@ func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode) (*git.Hunk, error) {
 	use := true
 	newHunk.Use = &use
 
-	patchData := a.reassemblePatch([]git.Hunk{*newHunk})
+	patchData := a.reassemblePatch([]git.Hunk{header, *newHunk})
 	if err := a.repo.CheckPatch(patchData, mode); err != nil {
 		retry, err := a.promptYesNo("Your edited hunk does not apply. Edit again (saying \"no\" discards!) [y/n]? ")
 		if err != nil || !retry {
 			return nil, nil
 		}
-		return a.editHunk(hunk, mode)
+		return a.editHunk(hunk, mode, header)
 	}
 
 	return newHunk, nil
