@@ -54,93 +54,84 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 			case "reset":
 				patchMode = "reset_head"
 				patchRevision = "HEAD"
-				if len(args) == 0 {
-					return "", "", nil, fmt.Errorf("missing --")
-				}
-				arg = args[0]
-				args = args[1:]
-				if arg != "--" {
-					patchRevision = arg
-					if arg == "HEAD" {
-						patchMode = "reset_head"
-					} else {
-						patchMode = "reset_nothead"
-					}
-					if len(args) == 0 {
-						return "", "", nil, fmt.Errorf("missing --")
-					}
+				if len(args) > 0 {
 					arg = args[0]
 					args = args[1:]
+					if arg != "--" {
+						patchRevision = arg
+						if arg == "HEAD" {
+							patchMode = "reset_head"
+						} else {
+							patchMode = "reset_nothead"
+						}
+						if len(args) > 0 && args[0] == "--" {
+							args = args[1:]
+						}
+					} else {
+						// Skip the "--"
+					}
 				}
 			case "checkout":
-				if len(args) == 0 {
-					return "", "", nil, fmt.Errorf("missing --")
-				}
-				arg = args[0]
-				args = args[1:]
-				if arg == "--" {
-					patchMode = "checkout_index"
-				} else {
-					patchRevision = arg
-					if arg == "HEAD" {
-						patchMode = "checkout_head"
-					} else {
-						patchMode = "checkout_nothead"
-					}
-					if len(args) == 0 {
-						return "", "", nil, fmt.Errorf("missing --")
-					}
+				if len(args) > 0 {
 					arg = args[0]
 					args = args[1:]
+					if arg == "--" {
+						patchMode = "checkout_index"
+					} else {
+						patchRevision = arg
+						if arg == "HEAD" {
+							patchMode = "checkout_head"
+						} else {
+							patchMode = "checkout_nothead"
+						}
+						if len(args) > 0 && args[0] == "--" {
+							args = args[1:]
+						}
+					}
+				} else {
+					patchMode = "checkout_index"
 				}
 			case "worktree":
-				if len(args) == 0 {
-					return "", "", nil, fmt.Errorf("missing --")
-				}
-				arg = args[0]
-				args = args[1:]
-				if arg == "--" {
-					patchMode = "checkout_index"
-				} else {
-					patchRevision = arg
-					if arg == "HEAD" {
-						patchMode = "worktree_head"
-					} else {
-						patchMode = "worktree_nothead"
-					}
-					if len(args) == 0 {
-						return "", "", nil, fmt.Errorf("missing --")
-					}
+				if len(args) > 0 {
 					arg = args[0]
 					args = args[1:]
+					if arg == "--" {
+						patchMode = "checkout_index"
+					} else {
+						patchRevision = arg
+						if arg == "HEAD" {
+							patchMode = "worktree_head"
+						} else {
+							patchMode = "worktree_nothead"
+						}
+						if len(args) > 0 && args[0] == "--" {
+							args = args[1:]
+						}
+					}
+				} else {
+					patchMode = "checkout_index"
 				}
 			case "stage", "stash":
 				patchMode = mode
-				if len(args) == 0 {
-					return "", "", nil, fmt.Errorf("missing --")
+				if len(args) > 0 && args[0] == "--" {
+					args = args[1:]
 				}
-				arg = args[0]
-				args = args[1:]
 			default:
 				return "", "", nil, fmt.Errorf("unknown --patch mode: %s", mode)
 			}
 		} else {
 			patchMode = "stage"
-			if len(args) == 0 {
-				return "", "", nil, fmt.Errorf("missing --")
+			if len(args) > 0 && args[0] == "--" {
+				args = args[1:]
 			}
-			arg = args[0]
-			args = args[1:]
-		}
-
-		if arg != "--" {
-			return "", "", nil, fmt.Errorf("invalid argument %s, expecting --", arg)
 		}
 
 		return patchMode, patchRevision, args, nil
-	} else if arg != "--" {
-		return "", "", nil, fmt.Errorf("invalid argument %s, expecting --", arg)
+	} else if arg == "--" {
+		// Handle: ./git-add-interactive -- path1 path2
+		return "", "", args, nil
+	} else {
+		// Handle: ./git-add-interactive path1 path2 (assume stage mode)
+		return "stage", "", append([]string{arg}, args...), nil
 	}
-
-	return "", "", args, nil
 }

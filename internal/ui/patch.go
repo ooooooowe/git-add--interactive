@@ -328,7 +328,7 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 					}
 					regexStr = strings.TrimSpace(regexInput)
 				}
-				
+
 				if regexStr == "" {
 					// Clear global filter
 					a.globalFilter = ""
@@ -343,17 +343,17 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 					ix = 0
 					continue
 				}
-				
+
 				// Set global filter
 				a.globalFilter = regexStr
-				
+
 				// Filter current hunks and replace current hunks list
 				filteredHunks := a.filterHunksByRegex(actualHunks, regexStr)
 				if len(filteredHunks) == 0 {
 					a.printError(fmt.Sprintf("No hunks in current file match pattern: %s\n", regexStr))
 					continue
 				}
-				
+
 				fmt.Printf("Global filter set to '%s': showing %d hunks in current file\n", regexStr, len(filteredHunks))
 				actualHunks = filteredHunks
 				ix = 0
@@ -387,7 +387,7 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 			if regexStr == "" {
 				continue
 			}
-			
+
 			// Find first matching hunk starting from current position
 			found := false
 			for i := ix + 1; i < len(actualHunks); i++ {
@@ -492,7 +492,7 @@ func (a *App) buildOtherOptions(hunks []git.Hunk, currentIx int) string {
 	if len(hunks) > 1 {
 		options = append(options, "g")
 	}
-	
+
 	// Always show G for global filter
 	options = append(options, "G")
 
@@ -599,17 +599,17 @@ func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode, header git.Hunk) (*gi
 
 func (a *App) autoSplitAllHunks(hunks []git.Hunk) []git.Hunk {
 	var result []git.Hunk
-	
+
 	for _, hunk := range hunks {
 		if a.repo.HunkSplittable(&hunk) {
 			// Keep splitting until no more splits are possible
 			currentSplits := []git.Hunk{hunk}
 			totalSplitRounds := 0
-			
+
 			for {
 				var newSplits []git.Hunk
 				splitOccurred := false
-				
+
 				for _, splitHunk := range currentSplits {
 					if a.repo.HunkSplittable(&splitHunk) {
 						splits := a.repo.SplitHunk(&splitHunk)
@@ -623,20 +623,20 @@ func (a *App) autoSplitAllHunks(hunks []git.Hunk) []git.Hunk {
 						newSplits = append(newSplits, splitHunk)
 					}
 				}
-				
+
 				currentSplits = newSplits
 				totalSplitRounds++
 				if !splitOccurred || totalSplitRounds > 10 { // Safety limit
 					break
 				}
 			}
-			
+
 			result = append(result, currentSplits...)
 		} else {
 			result = append(result, hunk)
 		}
 	}
-	
+
 	return result
 }
 

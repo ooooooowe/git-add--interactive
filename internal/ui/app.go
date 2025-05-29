@@ -134,11 +134,77 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 
 func (a *App) containsPath(paths []string, target string) bool {
 	for _, path := range paths {
-		if path == target {
+		if a.matchesPathspec(path, target) {
 			return true
 		}
 	}
 	return false
+}
+
+func (a *App) matchesPathspec(pathspec, target string) bool {
+	// Handle exact match first
+	if pathspec == target {
+		return true
+	}
+
+	// Parse pathspec magic signatures like :(,prefix:0)internal/
+	actualPath := a.parsePathspec(pathspec)
+
+	// Handle exact match with parsed path
+	if actualPath == target {
+		return true
+	}
+
+	// Handle directory prefix matching
+	if strings.HasSuffix(actualPath, "/") {
+		if strings.HasPrefix(target, actualPath) {
+			return true
+		}
+	}
+
+	// Handle relative path matching by normalizing both paths
+	normalizedPath := a.normalizePath(actualPath)
+	normalizedTarget := a.normalizePath(target)
+
+	// Exact match after normalization
+	if normalizedPath == normalizedTarget {
+		return true
+	}
+
+	// Directory prefix matching after normalization
+	if strings.HasSuffix(normalizedPath, "/") {
+		if strings.HasPrefix(normalizedTarget, normalizedPath) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (a *App) parsePathspec(pathspec string) string {
+	// Handle Git pathspec magic signatures like :(magic)path
+	if strings.HasPrefix(pathspec, ":(") {
+		// Find the closing parenthesis
+		closeParen := strings.Index(pathspec, ")")
+		if closeParen != -1 {
+			// Extract the path part after the magic signature
+			return pathspec[closeParen+1:]
+		}
+	}
+
+	return pathspec
+}
+
+func (a *App) normalizePath(path string) string {
+	// Remove leading "./" if present
+	if strings.HasPrefix(path, "./") {
+		path = path[2:]
+	}
+
+	// Remove trailing slashes
+	path = strings.TrimSuffix(path, "/")
+
+	return path
 }
 
 func (a *App) colored(color, text string) string {
