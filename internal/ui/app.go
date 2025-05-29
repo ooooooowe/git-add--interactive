@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -119,6 +120,9 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 
 	for _, file := range filteredFiles {
 		if err := a.patchUpdateFile(file.Path, patchMode, revision); err != nil {
+			if errors.Is(err, ErrQuit) {
+				break
+			}
 			return err
 		}
 	}

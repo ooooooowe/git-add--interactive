@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/cwarden/git-add--interactive/internal/git"
 )
+
+var ErrQuit = errors.New("user quit")
 
 var patchPrompts = map[string]map[string]string{
 	"stage": {
@@ -127,7 +130,24 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 					actualHunks[i].Use = &use
 				}
 			}
-			goto applyPatch
+
+			selectedHunks := []git.Hunk{hunks[0]}
+			for _, hunk := range actualHunks {
+				if hunk.Use != nil && *hunk.Use {
+					selectedHunks = append(selectedHunks, hunk)
+				}
+			}
+
+			if len(selectedHunks) > 1 {
+				patchData := a.reassemblePatch(selectedHunks)
+				if err := a.repo.ApplyPatch(patchData, mode); err != nil {
+					a.printError(fmt.Sprintf("Failed to apply patch: %v\n", err))
+				}
+				a.repo.UpdateIndex()
+			}
+
+			fmt.Println()
+			return ErrQuit
 
 		case 'a':
 			for i := ix; i < len(actualHunks); i++ {
