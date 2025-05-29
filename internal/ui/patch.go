@@ -34,6 +34,42 @@ var patchPrompts = map[string]map[string]string{
 		"deletion": "Discard deletion from worktree [y,n,q,a,d%s,?]? ",
 		"addition": "Discard addition from worktree [y,n,q,a,d%s,?]? ",
 	},
+	"reset_nothead": {
+		"hunk":     "Apply this hunk to index [y,n,q,a,d%s,?]? ",
+		"mode":     "Apply mode change to index [y,n,q,a,d%s,?]? ",
+		"deletion": "Apply deletion to index [y,n,q,a,d%s,?]? ",
+		"addition": "Apply addition to index [y,n,q,a,d%s,?]? ",
+	},
+	"checkout_head": {
+		"hunk":     "Discard this hunk from index and worktree [y,n,q,a,d%s,?]? ",
+		"mode":     "Discard mode change from index and worktree [y,n,q,a,d%s,?]? ",
+		"deletion": "Discard deletion from index and worktree [y,n,q,a,d%s,?]? ",
+		"addition": "Discard addition from index and worktree [y,n,q,a,d%s,?]? ",
+	},
+	"checkout_nothead": {
+		"hunk":     "Apply this hunk to index and worktree [y,n,q,a,d%s,?]? ",
+		"mode":     "Apply mode change to index and worktree [y,n,q,a,d%s,?]? ",
+		"deletion": "Apply deletion to index and worktree [y,n,q,a,d%s,?]? ",
+		"addition": "Apply addition to index and worktree [y,n,q,a,d%s,?]? ",
+	},
+	"worktree_head": {
+		"hunk":     "Discard this hunk from worktree [y,n,q,a,d%s,?]? ",
+		"mode":     "Discard mode change from worktree [y,n,q,a,d%s,?]? ",
+		"deletion": "Discard deletion from worktree [y,n,q,a,d%s,?]? ",
+		"addition": "Discard addition from worktree [y,n,q,a,d%s,?]? ",
+	},
+	"worktree_nothead": {
+		"hunk":     "Apply this hunk to worktree [y,n,q,a,d%s,?]? ",
+		"mode":     "Apply mode change to worktree [y,n,q,a,d%s,?]? ",
+		"deletion": "Apply deletion to worktree [y,n,q,a,d%s,?]? ",
+		"addition": "Apply addition to worktree [y,n,q,a,d%s,?]? ",
+	},
+	"stash": {
+		"hunk":     "Stash this hunk [y,n,q,a,d%s,?]? ",
+		"mode":     "Stash mode change [y,n,q,a,d%s,?]? ",
+		"deletion": "Stash deletion [y,n,q,a,d%s,?]? ",
+		"addition": "Stash addition [y,n,q,a,d%s,?]? ",
+	},
 }
 
 var patchHelp = map[string]string{
@@ -52,6 +88,36 @@ n - do not discard this hunk from worktree
 q - quit; do not discard this hunk or any of the remaining ones
 a - discard this hunk and all later hunks in the file
 d - do not discard this hunk or any of the later hunks in the file`,
+	"reset_nothead": `y - apply this hunk to index
+n - do not apply this hunk to index
+q - quit; do not apply this hunk or any of the remaining ones
+a - apply this hunk and all later hunks in the file
+d - do not apply this hunk or any of the later hunks in the file`,
+	"checkout_head": `y - discard this hunk from index and worktree
+n - do not discard this hunk from index and worktree
+q - quit; do not discard this hunk or any of the remaining ones
+a - discard this hunk and all later hunks in the file
+d - do not discard this hunk or any of the later hunks in the file`,
+	"checkout_nothead": `y - apply this hunk to index and worktree
+n - do not apply this hunk to index and worktree
+q - quit; do not apply this hunk or any of the remaining ones
+a - apply this hunk and all later hunks in the file
+d - do not apply this hunk or any of the later hunks in the file`,
+	"worktree_head": `y - discard this hunk from worktree
+n - do not discard this hunk from worktree
+q - quit; do not discard this hunk or any of the remaining ones
+a - discard this hunk and all later hunks in the file
+d - do not discard this hunk or any of the later hunks in the file`,
+	"worktree_nothead": `y - apply this hunk to worktree
+n - do not apply this hunk to worktree
+q - quit; do not apply this hunk or any of the remaining ones
+a - apply this hunk and all later hunks in the file
+d - do not apply this hunk or any of the later hunks in the file`,
+	"stash": `y - stash this hunk
+n - do not stash this hunk
+q - quit; do not stash this hunk or any of the remaining ones
+a - stash this hunk and all later hunks in the file
+d - do not stash this hunk or any of the later hunks in the file`,
 }
 
 func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) error {
