@@ -140,7 +140,18 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 		return nil
 	}
 
-	// Apply global filter if one is set
+	// Apply auto-splitting FIRST if enabled (before filtering)
+	if a.autoSplitEnabled {
+		originalCount := len(actualHunks)
+		actualHunks = a.autoSplitAllHunks(actualHunks)
+		if len(actualHunks) > originalCount {
+			fmt.Printf("Auto-split enabled: expanded %d hunks into %d smaller hunks\n", originalCount, len(actualHunks))
+		} else {
+			fmt.Printf("Auto-split enabled: %d hunks (no further splitting possible)\n", len(actualHunks))
+		}
+	}
+
+	// Apply global filter AFTER auto-splitting
 	if a.globalFilter != "" {
 		filteredHunks := a.filterHunksByRegex(actualHunks, a.globalFilter)
 		if len(filteredHunks) == 0 {
@@ -179,11 +190,14 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 		}
 
 		prompt := fmt.Sprintf(patchPrompts[mode.Name][promptKey], other)
-		filterStatus := ""
+		statusInfo := ""
 		if a.globalFilter != "" {
-			filterStatus = fmt.Sprintf(" [filter: %s]", a.globalFilter)
+			statusInfo += fmt.Sprintf(" [filter: %s]", a.globalFilter)
 		}
-		fmt.Printf("(%d/%d)%s %s", ix+1, len(actualHunks), filterStatus, a.colored(a.colors.PromptColor, prompt))
+		if a.autoSplitEnabled {
+			statusInfo += " [auto-split]"
+		}
+		fmt.Printf("(%d/%d)%s %s", ix+1, len(actualHunks), statusInfo, a.colored(a.colors.PromptColor, prompt))
 
 		input, err := a.promptSingleChar()
 		if err != nil {
@@ -191,6 +205,17 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 		}
 
 		if input == "" {
+			continue
+		}
+
+		// Check for uppercase commands first
+		if len(input) > 0 && input[0] == 'S' {
+			// Enable auto-splitting and split all current hunks
+			a.autoSplitEnabled = true
+			originalCount := len(actualHunks)
+			actualHunks = a.autoSplitAllHunks(actualHunks)
+			ix = 0 // Reset to beginning since hunk indices changed
+			fmt.Printf(a.colored(a.colors.HeaderColor, "Auto-split enabled globally: expanded %d hunks into %d smaller hunks\n"), originalCount, len(actualHunks))
 			continue
 		}
 
@@ -398,6 +423,7 @@ G - set global filter for all files (empty pattern clears filter)
 j - leave this hunk undecided, see next undecided hunk
 k - leave this hunk undecided, see previous undecided hunk
 s - split the current hunk into smaller hunks
+S - enable auto-splitting globally and split all hunks
 e - manually edit the current hunk
 ? - print help`
 			fmt.Print(a.colored(a.colors.HelpColor, help+"\n"))
@@ -474,6 +500,8 @@ func (a *App) buildOtherOptions(hunks []git.Hunk, currentIx int) string {
 	if a.repo.HunkSplittable(hunk) {
 		options = append(options, "s")
 	}
+	// Always show S for auto-splitting all hunks
+	options = append(options, "S")
 	if hunk.Type == git.HunkTypeHunk {
 		options = append(options, "e")
 	}
@@ -567,6 +595,49 @@ func (a *App) editHunk(hunk *git.Hunk, mode git.PatchMode, header git.Hunk) (*gi
 	}
 
 	return newHunk, nil
+}
+
+func (a *App) autoSplitAllHunks(hunks []git.Hunk) []git.Hunk {
+	var result []git.Hunk
+	
+	for _, hunk := range hunks {
+		if a.repo.HunkSplittable(&hunk) {
+			// Keep splitting until no more splits are possible
+			currentSplits := []git.Hunk{hunk}
+			totalSplitRounds := 0
+			
+			for {
+				var newSplits []git.Hunk
+				splitOccurred := false
+				
+				for _, splitHunk := range currentSplits {
+					if a.repo.HunkSplittable(&splitHunk) {
+						splits := a.repo.SplitHunk(&splitHunk)
+						if len(splits) > 1 {
+							splitOccurred = true
+							newSplits = append(newSplits, splits...)
+						} else {
+							newSplits = append(newSplits, splitHunk)
+						}
+					} else {
+						newSplits = append(newSplits, splitHunk)
+					}
+				}
+				
+				currentSplits = newSplits
+				totalSplitRounds++
+				if !splitOccurred || totalSplitRounds > 10 { // Safety limit
+					break
+				}
+			}
+			
+			result = append(result, currentSplits...)
+		} else {
+			result = append(result, hunk)
+		}
+	}
+	
+	return result
 }
 
 func (a *App) hunkMatchesRegex(hunk *git.Hunk, regexStr string) bool {

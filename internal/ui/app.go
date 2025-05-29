@@ -12,9 +12,10 @@ import (
 )
 
 type App struct {
-	repo         *git.Repository
-	colors       ColorConfig
-	globalFilter string // Global regex filter for all files
+	repo             *git.Repository
+	colors           ColorConfig
+	globalFilter     string // Global regex filter for all files
+	autoSplitEnabled bool   // Global flag to automatically split hunks to smallest possible
 }
 
 type ColorConfig struct {
