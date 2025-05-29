@@ -89,7 +89,7 @@ func (r *Repository) GetColor(key, defaultColor string) string {
 }
 
 func (r *Repository) GetColorBool(key string) bool {
-	output, err := r.RunCommand("config", "--get-colorbool", key)
+	output, err := r.RunCommand("config", "--get-colorbool", key, "true")
 	if err != nil {
 		return false
 	}

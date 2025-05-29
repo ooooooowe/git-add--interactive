@@ -144,7 +144,11 @@ func (r *Repository) ParseDiff(path string, mode PatchMode, revision string) ([]
 	var coloredLines []string
 	if r.GetColorBool("color.diff") {
 		colorCmd := append([]string{}, mode.DiffCmd...)
-		colorCmd = append(colorCmd, "--color", "--", path)
+
+		if diffAlgo, err := r.GetConfig("diff.algorithm"); err == nil && diffAlgo != "" {
+			colorCmd = append([]string{colorCmd[0], "--diff-algorithm=" + diffAlgo}, colorCmd[1:]...)
+		}
+
 		if revision != "" {
 			reference := revision
 			if r.IsInitialCommit() && revision == "HEAD" {
@@ -154,8 +158,10 @@ func (r *Repository) ParseDiff(path string, mode PatchMode, revision string) ([]
 				}
 				reference = emptyTree
 			}
-			colorCmd = append(colorCmd[:len(colorCmd)-2], reference, "--", path)
+			colorCmd = append(colorCmd, reference)
 		}
+
+		colorCmd = append(colorCmd, "--color=always", "--", path)
 		coloredLines, _ = r.RunCommandLines(colorCmd...)
 	}
 
