@@ -15,6 +15,7 @@ import (
 )
 
 var ErrQuit = errors.New("user quit")
+var ErrAcceptAll = errors.New("accept all hunks in all files")
 
 var patchPrompts = map[string]map[string]string{
 	"stage": {
@@ -219,6 +220,35 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 			continue
 		}
 
+		if len(input) > 0 && input[0] == 'A' {
+			// Accept all hunks in current file and signal to accept all hunks in all remaining files
+			for i := 0; i < len(actualHunks); i++ {
+				if actualHunks[i].Use == nil {
+					use := true
+					actualHunks[i].Use = &use
+				}
+			}
+
+			// Apply current file's changes first
+			selectedHunks := []git.Hunk{hunks[0]}
+			for _, hunk := range actualHunks {
+				if hunk.Use != nil && *hunk.Use {
+					selectedHunks = append(selectedHunks, hunk)
+				}
+			}
+
+			if len(selectedHunks) > 1 {
+				patchData := a.reassemblePatch(selectedHunks)
+				if err := a.repo.ApplyPatch(patchData, mode); err != nil {
+					a.printError(fmt.Sprintf("Failed to apply patch: %v\n", err))
+				}
+				a.repo.UpdateIndex()
+			}
+
+			fmt.Println()
+			return ErrAcceptAll
+		}
+
 		switch strings.ToLower(input)[0] {
 		case 'y':
 			use := true
@@ -420,6 +450,7 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 / - search for a pattern in current file
 g - select a hunk to go to
 G - set global filter for all files (empty pattern clears filter)
+A - accept all hunks (after auto-splitting and filtering)
 j - leave this hunk undecided, see next undecided hunk
 k - leave this hunk undecided, see previous undecided hunk
 s - split the current hunk into smaller hunks
@@ -493,8 +524,9 @@ func (a *App) buildOtherOptions(hunks []git.Hunk, currentIx int) string {
 		options = append(options, "g")
 	}
 
-	// Always show G for global filter
+	// Always show G for global filter and A for accept all
 	options = append(options, "G")
+	options = append(options, "A")
 
 	hunk := &hunks[currentIx]
 	if a.repo.HunkSplittable(hunk) {

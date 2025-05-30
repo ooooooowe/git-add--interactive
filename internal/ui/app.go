@@ -120,9 +120,19 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 		return nil
 	}
 
-	for _, file := range filteredFiles {
+	for i, file := range filteredFiles {
 		if err := a.patchUpdateFile(file.Path, patchMode, revision); err != nil {
 			if errors.Is(err, ErrQuit) {
+				break
+			}
+			if errors.Is(err, ErrAcceptAll) {
+				// Accept all hunks in all remaining files
+				for j := i + 1; j < len(filteredFiles); j++ {
+					remainingFile := filteredFiles[j]
+					if err := a.acceptAllHunksInFile(remainingFile.Path, patchMode, revision); err != nil {
+						return err
+					}
+				}
 				break
 			}
 			return err
@@ -205,6 +215,67 @@ func (a *App) normalizePath(path string) string {
 	path = strings.TrimSuffix(path, "/")
 
 	return path
+}
+
+func (a *App) acceptAllHunksInFile(path string, mode git.PatchMode, revision string) error {
+	hunks, err := a.repo.ParseDiff(path, mode, revision)
+	if err != nil {
+		return err
+	}
+
+	if len(hunks) == 0 {
+		return nil
+	}
+
+	actualHunks := hunks[1:]
+	if len(actualHunks) == 0 {
+		return nil
+	}
+
+	// Apply auto-splitting FIRST if enabled (before filtering)
+	if a.autoSplitEnabled {
+		originalCount := len(actualHunks)
+		actualHunks = a.autoSplitAllHunks(actualHunks)
+		if len(actualHunks) > originalCount {
+			fmt.Printf("Auto-split enabled: expanded %d hunks into %d smaller hunks in %s\n", originalCount, len(actualHunks), path)
+		}
+	}
+
+	// Apply global filter AFTER auto-splitting
+	if a.globalFilter != "" {
+		filteredHunks := a.filterHunksByRegex(actualHunks, a.globalFilter)
+		if len(filteredHunks) == 0 {
+			fmt.Printf("No hunks in %s match global filter: %s\n", path, a.globalFilter)
+			return nil
+		}
+		fmt.Printf("Applied global filter '%s' to %s: accepting %d of %d hunks\n", a.globalFilter, path, len(filteredHunks), len(actualHunks))
+		actualHunks = filteredHunks
+	}
+
+	// Accept all hunks
+	for i := 0; i < len(actualHunks); i++ {
+		use := true
+		actualHunks[i].Use = &use
+	}
+
+	// Apply the patch
+	selectedHunks := []git.Hunk{hunks[0]}
+	for _, hunk := range actualHunks {
+		if hunk.Use != nil && *hunk.Use {
+			selectedHunks = append(selectedHunks, hunk)
+		}
+	}
+
+	if len(selectedHunks) > 1 {
+		patchData := a.reassemblePatch(selectedHunks)
+		if err := a.repo.ApplyPatch(patchData, mode); err != nil {
+			return fmt.Errorf("failed to apply patch for %s: %v", path, err)
+		}
+		a.repo.UpdateIndex()
+		fmt.Printf("Accepted all hunks in %s\n", path)
+	}
+
+	return nil
 }
 
 func (a *App) colored(color, text string) string {
