@@ -2,6 +2,8 @@
 
 A Go port of Git's interactive add functionality, providing the same interface as `git add -i` and `git add -p`, with a few enhancements.
 
+![Demo](examples/demo.gif)
+
 ## Features
 
 - **Interactive staging**: Select files and hunks to stage interactively
