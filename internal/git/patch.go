@@ -262,101 +262,125 @@ func (r *Repository) HunkSplittable(hunk *Hunk) bool {
 		return false
 	}
 
-	contextLines := 0
-	inChanges := false
-
-	for i := 1; i < len(hunk.Text); i++ {
-		line := hunk.Text[i]
-		if strings.HasPrefix(line, " ") {
-			if inChanges {
-				contextLines++
-			}
-		} else if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
-			if contextLines > 0 {
-				return true
-			}
-			inChanges = true
-			contextLines = 0
-		}
-	}
-
-	return false
+	splits := r.splitHunkInternal(hunk)
+	return len(splits) > 1
 }
 
 func (r *Repository) SplitHunk(hunk *Hunk) []Hunk {
-	if !r.HunkSplittable(hunk) {
+	return r.splitHunkInternal(hunk)
+}
+
+func (r *Repository) splitHunkInternal(hunk *Hunk) []Hunk {
+	if hunk.Type != HunkTypeHunk {
 		return []Hunk{*hunk}
 	}
 
-	var splits []Hunk
-	currentSplit := Hunk{
-		Type:    HunkTypeHunk,
-		Text:    []string{hunk.Text[0]},
-		Display: []string{hunk.Display[0]},
-		OldLine: hunk.OldLine,
-		NewLine: hunk.NewLine,
-	}
-
-	oldOffset := hunk.OldLine
-	newOffset := hunk.NewLine
-	oldCnt := 0
-	newCnt := 0
-	inChanges := false
-	contextLines := 0
+	// Find the first context line after changes that has more changes after it
+	var splitPoint int = -1
+	addDel := false
 
 	for i := 1; i < len(hunk.Text); i++ {
 		line := hunk.Text[i]
-		displayLine := hunk.Display[i]
+		if strings.HasPrefix(line, "\\") {
+			continue
+		}
 
 		if strings.HasPrefix(line, " ") {
-			if inChanges && contextLines >= 3 {
-				currentSplit.OldCnt = oldCnt
-				currentSplit.NewCnt = newCnt
-				r.updateHunkHeader(&currentSplit)
-				splits = append(splits, currentSplit)
-
-				oldOffset += oldCnt
-				newOffset += newCnt
-				currentSplit = Hunk{
-					Type:    HunkTypeHunk,
-					Text:    []string{},
-					Display: []string{},
-					OldLine: oldOffset,
-					NewLine: newOffset,
+			// Context line
+			if addDel {
+				// Check if there are more changes after this context line
+				hasMoreChanges := false
+				for j := i + 1; j < len(hunk.Text); j++ {
+					nextLine := hunk.Text[j]
+					if strings.HasPrefix(nextLine, "+") || strings.HasPrefix(nextLine, "-") {
+						hasMoreChanges = true
+						break
+					}
 				}
-				oldCnt = 0
-				newCnt = 0
-				inChanges = false
-				contextLines = 0
+				if hasMoreChanges {
+					splitPoint = i
+					break
+				}
 			}
-
-			if inChanges {
-				contextLines++
-			}
-
-			currentSplit.Text = append(currentSplit.Text, line)
-			currentSplit.Display = append(currentSplit.Display, displayLine)
-			oldCnt++
-			newCnt++
-		} else {
-			inChanges = true
-			contextLines = 0
-
-			currentSplit.Text = append(currentSplit.Text, line)
-			currentSplit.Display = append(currentSplit.Display, displayLine)
-
-			if strings.HasPrefix(line, "-") {
-				oldCnt++
-			} else if strings.HasPrefix(line, "+") {
-				newCnt++
-			}
+		} else if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			addDel = true
 		}
 	}
 
-	currentSplit.OldCnt = oldCnt
-	currentSplit.NewCnt = newCnt
-	r.updateHunkHeader(&currentSplit)
-	splits = append(splits, currentSplit)
+	if splitPoint == -1 {
+		return []Hunk{*hunk}
+	}
+
+	// Create exactly 2 splits like Perl version
+	var splits []Hunk
+
+	// Split 1: from start to splitPoint (inclusive)
+	split1 := Hunk{
+		Type:    HunkTypeHunk,
+		Text:    []string{},
+		Display: []string{},
+		OldLine: hunk.OldLine,
+		NewLine: hunk.NewLine,
+		OldCnt:  0,
+		NewCnt:  0,
+	}
+
+	for i := 1; i <= splitPoint; i++ {
+		line := hunk.Text[i]
+		displayLine := line
+		if i < len(hunk.Display) {
+			displayLine = hunk.Display[i]
+		}
+
+		split1.Text = append(split1.Text, line)
+		split1.Display = append(split1.Display, displayLine)
+
+		if strings.HasPrefix(line, " ") {
+			split1.OldCnt++
+			split1.NewCnt++
+		} else if strings.HasPrefix(line, "-") {
+			split1.OldCnt++
+		} else if strings.HasPrefix(line, "+") {
+			split1.NewCnt++
+		}
+	}
+
+	r.updateHunkHeader(&split1)
+	splits = append(splits, split1)
+
+	// Split 2: from splitPoint to end (splitPoint line is included in both)
+	split2 := Hunk{
+		Type:    HunkTypeHunk,
+		Text:    []string{},
+		Display: []string{},
+		OldLine: hunk.OldLine + split1.OldCnt - 1, // -1 for overlapping context line
+		NewLine: hunk.NewLine + split1.NewCnt - 1,
+		OldCnt:  0,
+		NewCnt:  0,
+	}
+
+	for i := splitPoint; i < len(hunk.Text); i++ {
+		line := hunk.Text[i]
+		displayLine := line
+		if i < len(hunk.Display) {
+			displayLine = hunk.Display[i]
+		}
+
+		split2.Text = append(split2.Text, line)
+		split2.Display = append(split2.Display, displayLine)
+
+		if strings.HasPrefix(line, " ") {
+			split2.OldCnt++
+			split2.NewCnt++
+		} else if strings.HasPrefix(line, "-") {
+			split2.OldCnt++
+		} else if strings.HasPrefix(line, "+") {
+			split2.NewCnt++
+		}
+	}
+
+	r.updateHunkHeader(&split2)
+	splits = append(splits, split2)
 
 	return splits
 }
@@ -372,11 +396,7 @@ func (r *Repository) updateHunkHeader(hunk *Hunk) {
 	}
 	header += " @@"
 
-	if len(hunk.Text) > 0 {
-		hunk.Text[0] = header
-		hunk.Display[0] = header
-	} else {
-		hunk.Text = []string{header}
-		hunk.Display = []string{header}
-	}
+	// Insert header at the beginning instead of replacing first line
+	hunk.Text = append([]string{header}, hunk.Text...)
+	hunk.Display = append([]string{header}, hunk.Display...)
 }
