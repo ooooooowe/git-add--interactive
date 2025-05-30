@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/cwarden/git-add--interactive/internal/git"
 	"github.com/cwarden/git-add--interactive/internal/ui"
@@ -66,10 +67,14 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 						}
 						if len(args) > 0 && args[0] == "--" {
 							args = args[1:]
+						} else {
+							return "", "", nil, fmt.Errorf("expected '--' after revision")
 						}
 					} else {
 						// Skip the "--"
 					}
+				} else {
+					return "", "", nil, fmt.Errorf("expected '--' after --patch=reset")
 				}
 			case "checkout":
 				if len(args) > 0 {
@@ -86,10 +91,12 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 						}
 						if len(args) > 0 && args[0] == "--" {
 							args = args[1:]
+						} else {
+							return "", "", nil, fmt.Errorf("expected '--' after revision")
 						}
 					}
 				} else {
-					patchMode = "checkout_index"
+					return "", "", nil, fmt.Errorf("expected '--' after --patch=checkout")
 				}
 			case "worktree":
 				if len(args) > 0 {
@@ -106,6 +113,8 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 						}
 						if len(args) > 0 && args[0] == "--" {
 							args = args[1:]
+						} else {
+							return "", "", nil, fmt.Errorf("expected '--' after revision")
 						}
 					}
 				} else {
@@ -121,8 +130,14 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 			}
 		} else {
 			patchMode = "stage"
-			if len(args) > 0 && args[0] == "--" {
-				args = args[1:]
+			if len(args) > 0 {
+				if args[0] == "--" {
+					args = args[1:]
+				} else {
+					return "", "", nil, fmt.Errorf("expected '--' after --patch")
+				}
+			} else {
+				return "", "", nil, fmt.Errorf("expected '--' after --patch")
 			}
 		}
 
@@ -130,6 +145,9 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 	} else if arg == "--" {
 		// Handle: ./git-add-interactive -- path1 path2
 		return "", "", args, nil
+	} else if strings.HasPrefix(arg, "--") {
+		// Reject unknown long options
+		return "", "", nil, fmt.Errorf("unknown option: %s", arg)
 	} else {
 		// Handle: ./git-add-interactive path1 path2 (assume stage mode)
 		return "stage", "", append([]string{arg}, args...), nil
