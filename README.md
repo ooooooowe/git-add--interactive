@@ -1,6 +1,6 @@
 # Git Add Interactive (Go Implementation)
 
-A Go port of Git's interactive add functionality, providing the same interface as `git add -i` and `git add -p`.
+A Go port of Git's interactive add functionality, providing the same interface as `git add -i` and `git add -p`, with a few enhancements.
 
 ## Features
 
@@ -10,6 +10,46 @@ A Go port of Git's interactive add functionality, providing the same interface a
 - **Multiple patch modes**: Support for stage, reset, checkout, stash, and worktree operations
 - **Git integration**: Full Git color configuration and repository support
 - **Terminal UI**: Color-coded interface with keyboard shortcuts
+
+## Enhancements Over Perl Version
+
+This Go implementation adds several powerful features beyond the original Perl script:
+
+### Global Filtering (G command)
+Filter hunks across all files using regex patterns:
+
+```
+G <regex>    # Set global filter to show only hunks matching pattern
+G            # Clear filter (interactive prompt for new pattern)
+```
+
+**Example workflows:**
+- `G TODO` - Show only hunks containing "TODO" comments
+- `G import` - Focus on import statement changes
+- `G console\.log` - Find all debugging statements
+
+### Auto-Splitting (S command)
+Automatically split all hunks to maximum granularity:
+```
+S    # Enable auto-splitting globally and split all hunks
+```
+
+This recursively splits hunks until no further splitting is possible, giving you the finest possible control over what gets staged.
+
+### Accept All (A command)
+Accept all hunks across all files (after filtering and splitting):
+```
+A    # Accept all visible hunks in all remaining files
+```
+
+**Powerful workflow combinations:**
+- `S` → `G <pattern>` → `A` - Split everything, filter by pattern, accept all matches
+- `G console\.log` → `A` - Quickly stage all debugging code across your entire changeset
+
+### Enhanced Search and Navigation
+- **Local search (`/`)**: Search within current file without affecting global filter
+- **Status display**: Shows `[filter: pattern]` and `[auto-split]` indicators
+- **Cross-file filtering**: Global filters persist across all files in the session
 
 ## Installation
 
@@ -103,6 +143,10 @@ Patch mode allows you to interactively select hunks with these commands:
 - `j/k` - Navigate to next/previous undecided hunk
 - `J/K` - Navigate to next/previous hunk
 - `g` - Go to a specific hunk number
+- `/` - Search for pattern in current file
+- `G` - Set global filter for all files (or clear with empty pattern)
+- `S` - Enable auto-splitting globally and split all hunks
+- `A` - Accept all hunks in all remaining files
 - `?` - Show help
 
 ## Architecture
