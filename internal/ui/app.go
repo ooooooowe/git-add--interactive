@@ -39,6 +39,31 @@ func NewApp(repo *git.Repository) *App {
 	return app
 }
 
+func (a *App) showInteractiveStatus() {
+	files, err := a.repo.ListModified("")
+	if err != nil {
+		return // Silently skip status on error
+	}
+
+	if len(files) == 0 {
+		return // No files to show
+	}
+
+	fmt.Printf("           %s     %s %s\n", "staged", "unstaged", "path")
+	for i, file := range files {
+		stagePart := file.Index
+		if stagePart == "" {
+			stagePart = "unchanged"
+		}
+		unstagePart := file.File
+		if unstagePart == "" {
+			unstagePart = "nothing"
+		}
+		fmt.Printf("  %d:    %-12s %s %s\n",
+			i+1, stagePart, unstagePart, file.Path)
+	}
+}
+
 func (a *App) initColors() {
 	a.colors.UseColor = a.repo.GetColorBool("color.interactive")
 
@@ -71,23 +96,62 @@ func (a *App) RunInteractive() error {
 	}
 
 	for {
-		fmt.Print(a.colored(a.colors.HeaderColor, "*** Commands ***\n"))
+		// Show status first like Perl version
+		a.showInteractiveStatus()
 
-		var cmdItems []interface{}
-		for _, cmd := range commands {
-			cmdItems = append(cmdItems, cmd)
-		}
+		// Show commands in compact format like Perl version
+		fmt.Print(a.colored(a.colors.HeaderColor, "\n*** Commands ***\n"))
 
-		choice, err := a.listAndChoose("What now", cmdItems, true, true)
+		// Display commands in compact horizontal format like Perl version
+		cmdLine1 := fmt.Sprintf("  1: %s       2: %s       3: %s       4: %s",
+			a.colored(a.colors.PromptColor, "s")+"tatus",
+			a.colored(a.colors.PromptColor, "u")+"pdate",
+			a.colored(a.colors.PromptColor, "r")+"evert",
+			a.colored(a.colors.PromptColor, "a")+"dd untracked")
+		cmdLine2 := fmt.Sprintf("  5: %s        6: %s         7: %s         8: %s",
+			a.colored(a.colors.PromptColor, "p")+"atch",
+			a.colored(a.colors.PromptColor, "d")+"iff",
+			a.colored(a.colors.PromptColor, "q")+"uit",
+			a.colored(a.colors.PromptColor, "h")+"elp")
+
+		fmt.Println(cmdLine1)
+		fmt.Println(cmdLine2)
+
+		// Interactive prompt
+		fmt.Print(a.colored(a.colors.PromptColor, "What now> "))
+		input, err := a.promptSingleChar()
 		if err != nil {
 			return err
 		}
 
-		if len(choice) == 0 {
+		if input == "" {
 			break
 		}
 
-		if err := choice[0].(Command).Action(); err != nil {
+		// Handle single letter commands
+		var selectedCmd *Command
+		for _, cmd := range commands {
+			if strings.ToLower(input) == strings.ToLower(cmd.Name[:1]) {
+				selectedCmd = &cmd
+				break
+			}
+		}
+
+		// Handle numeric commands
+		if selectedCmd == nil {
+			if num, err := strconv.Atoi(input); err == nil {
+				if num >= 1 && num <= len(commands) {
+					selectedCmd = &commands[num-1]
+				}
+			}
+		}
+
+		if selectedCmd == nil {
+			a.printError(fmt.Sprintf("Invalid input: %s\n", input))
+			continue
+		}
+
+		if err := selectedCmd.Action(); err != nil {
 			a.printError(fmt.Sprintf("Error: %v\n", err))
 		}
 	}
@@ -480,7 +544,48 @@ func (a *App) addUntrackedCmd() error {
 }
 
 func (a *App) patchCmd() error {
-	return a.RunPatchMode("stage", "", nil)
+	files, err := a.repo.ListModified("file-only")
+	if err != nil {
+		return err
+	}
+
+	if len(files) == 0 {
+		fmt.Println("No changes.")
+		fmt.Println()
+		return nil
+	}
+
+	var fileItems []interface{}
+	for _, file := range files {
+		if !file.Unmerged && !file.Binary {
+			fileItems = append(fileItems, file)
+		}
+	}
+
+	if len(fileItems) == 0 {
+		fmt.Println("No changes.")
+		fmt.Println()
+		return nil
+	}
+
+	fmt.Printf(a.colored(a.colors.HeaderColor, "%12s %12s %s\n"), "staged", "unstaged", "path")
+	chosen, err := a.listAndChoose("Patch update", fileItems, false, false)
+	if err != nil {
+		return err
+	}
+
+	if len(chosen) > 0 {
+		var paths []string
+		for _, item := range chosen {
+			file := item.(git.FileStatus)
+			paths = append(paths, file.Path)
+		}
+
+		return a.RunPatchMode("stage", "", paths)
+	}
+
+	fmt.Println()
+	return nil
 }
 
 func (a *App) diffCmd() error {
@@ -557,6 +662,118 @@ func (a *App) listAndChoose(prompt string, items []interface{}, singleton, immed
 		return nil, nil
 	}
 
+	if singleton {
+		return a.listAndChooseSingleton(prompt, items, immediate)
+	}
+
+	// Multi-select mode with persistent selection
+	selected := make(map[int]bool)
+
+	for {
+		// Display items with selection markers
+		fmt.Printf(a.colored(a.colors.HeaderColor, "%12s %12s %s\n"), "staged", "unstaged", "path")
+		for i, item := range items {
+			marker := " "
+			if selected[i] {
+				marker = "*"
+			}
+			fmt.Printf("%s%2d: %s\n", marker, i+1, a.formatItem(item))
+		}
+
+		promptStr := prompt + ">> "
+		fmt.Print(a.colored(a.colors.PromptColor, promptStr))
+
+		input, err := a.promptSingleChar()
+		if err != nil {
+			return nil, err
+		}
+
+		if input == "" {
+			// Empty input - finish selecting
+			var result []interface{}
+			for i, item := range items {
+				if selected[i] {
+					result = append(result, item)
+				}
+			}
+			return result, nil
+		}
+
+		if input == "?" {
+			a.printSelectionHelp(singleton)
+			continue
+		}
+
+		if input == "*" {
+			// Select all items
+			for i := range items {
+				selected[i] = true
+			}
+			continue
+		}
+
+		// Handle deselection with leading dash
+		isDeselect := strings.HasPrefix(input, "-")
+		if isDeselect {
+			input = input[1:]
+		}
+
+		choices := strings.Split(input, ",")
+		hasError := false
+
+		for _, choice := range choices {
+			choice = strings.TrimSpace(choice)
+			if choice == "" {
+				continue
+			}
+
+			// Handle ranges (e.g., "3-5", "1-3")
+			if strings.Contains(choice, "-") {
+				parts := strings.SplitN(choice, "-", 2)
+				if len(parts) == 2 {
+					start, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+					end, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+
+					if err1 != nil || err2 != nil || start < 1 || end < 1 || start > len(items) || end > len(items) {
+						a.printError(fmt.Sprintf("Invalid range: %s\n", choice))
+						hasError = true
+						break
+					}
+
+					if start > end {
+						start, end = end, start
+					}
+
+					for i := start; i <= end; i++ {
+						selected[i-1] = !isDeselect
+					}
+					continue
+				}
+			}
+
+			// Handle single numbers
+			if num, err := strconv.Atoi(choice); err == nil {
+				if num >= 1 && num <= len(items) {
+					selected[num-1] = !isDeselect
+				} else {
+					a.printError(fmt.Sprintf("Invalid number: %s\n", choice))
+					hasError = true
+					break
+				}
+			} else {
+				a.printError(fmt.Sprintf("Invalid input: %s\n", choice))
+				hasError = true
+				break
+			}
+		}
+
+		if hasError {
+			continue
+		}
+	}
+}
+
+func (a *App) listAndChooseSingleton(prompt string, items []interface{}, immediate bool) ([]interface{}, error) {
 	for {
 		for i, item := range items {
 			fmt.Printf("%2d: %s\n", i+1, a.formatItem(item))
@@ -566,13 +783,7 @@ func (a *App) listAndChoose(prompt string, items []interface{}, singleton, immed
 			return []interface{}{items[0]}, nil
 		}
 
-		promptStr := prompt
-		if singleton {
-			promptStr += "> "
-		} else {
-			promptStr += ">> "
-		}
-
+		promptStr := prompt + "> "
 		fmt.Print(a.colored(a.colors.PromptColor, promptStr))
 
 		input, err := a.promptSingleChar()
@@ -585,30 +796,35 @@ func (a *App) listAndChoose(prompt string, items []interface{}, singleton, immed
 		}
 
 		if input == "?" {
-			a.printSelectionHelp(singleton)
+			a.printSelectionHelp(true)
 			continue
 		}
 
-		choices := strings.Split(input, ",")
-		var selected []interface{}
-
-		for _, choice := range choices {
-			choice = strings.TrimSpace(choice)
-
-			if num, err := strconv.Atoi(choice); err == nil {
-				if num >= 1 && num <= len(items) {
-					selected = append(selected, items[num-1])
-				} else {
-					a.printError(fmt.Sprintf("Invalid number: %s\n", choice))
-					continue
+		// Handle single letter commands
+		var selectedCmd *Command
+		for _, item := range items {
+			if cmd, ok := item.(Command); ok {
+				if strings.ToLower(input) == strings.ToLower(cmd.Name[:1]) {
+					selectedCmd = &cmd
+					break
 				}
-			} else {
-				a.printError(fmt.Sprintf("Invalid input: %s\n", choice))
-				continue
 			}
 		}
 
-		return selected, nil
+		// Handle numeric commands
+		if selectedCmd == nil {
+			if num, err := strconv.Atoi(input); err == nil {
+				if num >= 1 && num <= len(items) {
+					return []interface{}{items[num-1]}, nil
+				}
+			}
+		}
+
+		if selectedCmd != nil {
+			return []interface{}{*selectedCmd}, nil
+		}
+
+		a.printError(fmt.Sprintf("Invalid input: %s\n", input))
 	}
 
 	return nil, nil
@@ -631,6 +847,7 @@ func (a *App) printSelectionHelp(singleton bool) {
 	if singleton {
 		help := a.colored(a.colors.HelpColor, `Prompt help:
 1          - select a numbered item
+foo        - select item based on unique prefix
            - (empty) select nothing
 `)
 		fmt.Print(help)
@@ -639,6 +856,9 @@ func (a *App) printSelectionHelp(singleton bool) {
 1          - select a single item
 3-5        - select a range of items
 2-3,6-9    - select multiple ranges
+foo        - select item based on unique prefix
+-...       - unselect specified items
+*          - choose all items
            - (empty) finish selecting
 `)
 		fmt.Print(help)
