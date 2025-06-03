@@ -408,14 +408,17 @@ func (a *App) patchUpdateFile(path string, mode git.PatchMode, revision string) 
 
 		case '/':
 			// Search within current file hunks (same as G but doesn't set global filter)
-			fmt.Print("search for which pattern? ")
-			regexInput, err := a.promptSingleChar()
-			if err != nil {
-				continue
-			}
-			regexStr := strings.TrimSpace(regexInput)
+			regexStr := strings.TrimSpace(input[1:])
 			if regexStr == "" {
-				continue
+				fmt.Print("search for which pattern? ")
+				regexInput, err := a.promptSingleChar()
+				if err != nil {
+					continue
+				}
+				regexStr = strings.TrimSpace(regexInput)
+				if regexStr == "" {
+					continue
+				}
 			}
 
 			// Find first matching hunk starting from current position
