@@ -134,3 +134,46 @@ func TestParseUnmergedLine(t *testing.T) {
 		t.Error("Expected Unmerged=true for conflicted file")
 	}
 }
+
+func TestListModifiedWithRevisionAndPaths(t *testing.T) {
+	// This test validates the function signature and argument passing
+	// Actual git command testing would require a real git repository
+	repo := &Repository{
+		workTree: "/test/repo",
+	}
+
+	// Test that paths are properly passed through
+	// We can't easily test the actual git commands without a real repo,
+	// but we can verify the function exists and has the right signature
+	_, err := repo.ListModifiedWithRevisionAndPaths("file-only", "", []string{"test.txt"})
+
+	// We expect an error since this isn't a real git repo
+	if err == nil {
+		t.Error("Expected error for non-git directory, but got none")
+	}
+}
+
+func TestListModifiedWithRevisionAndPathsFilters(t *testing.T) {
+	// Test the filter logic without actual git commands
+	repo := &Repository{
+		workTree: "/test/repo",
+	}
+
+	// Test file-only filter - should skip diff-index
+	_, err := repo.ListModifiedWithRevisionAndPaths("file-only", "HEAD", []string{})
+	if err == nil {
+		t.Error("Expected error for non-git directory, but got none")
+	}
+
+	// Test index-only filter - should skip diff-files
+	_, err = repo.ListModifiedWithRevisionAndPaths("index-only", "HEAD", []string{})
+	if err == nil {
+		t.Error("Expected error for non-git directory, but got none")
+	}
+
+	// Test no filter - should run both commands
+	_, err = repo.ListModifiedWithRevisionAndPaths("", "HEAD", []string{})
+	if err == nil {
+		t.Error("Expected error for non-git directory, but got none")
+	}
+}

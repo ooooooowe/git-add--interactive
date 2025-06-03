@@ -165,7 +165,7 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 		return fmt.Errorf("unknown patch mode: %s", mode)
 	}
 
-	files, err := a.repo.ListModifiedWithRevision(patchMode.Filter, revision)
+	files, err := a.repo.ListModifiedWithRevisionAndPaths(patchMode.Filter, revision, paths)
 	if err != nil {
 		return err
 	}
@@ -173,9 +173,7 @@ func (a *App) RunPatchMode(mode, revision string, paths []string) error {
 	var filteredFiles []git.FileStatus
 	for _, file := range files {
 		if !file.Unmerged && !file.Binary {
-			if len(paths) == 0 || a.containsPath(paths, file.Path) {
-				filteredFiles = append(filteredFiles, file)
-			}
+			filteredFiles = append(filteredFiles, file)
 		}
 	}
 

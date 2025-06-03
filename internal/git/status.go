@@ -21,6 +21,10 @@ func (r *Repository) ListModified(filter string) ([]FileStatus, error) {
 }
 
 func (r *Repository) ListModifiedWithRevision(filter, revision string) ([]FileStatus, error) {
+	return r.ListModifiedWithRevisionAndPaths(filter, revision, nil)
+}
+
+func (r *Repository) ListModifiedWithRevisionAndPaths(filter, revision string, paths []string) ([]FileStatus, error) {
 	var files []FileStatus
 	statusMap := make(map[string]*FileStatus)
 
@@ -36,25 +40,47 @@ func (r *Repository) ListModifiedWithRevision(filter, revision string) ([]FileSt
 		reference = emptyTree
 	}
 
-	indexLines, err := r.RunCommandLines("diff-index", "--cached", "--numstat", "--summary", reference, "--")
-	if err != nil {
-		return nil, err
-	}
+	// Only run diff-index if we're not doing file-only filtering
+	if filter != "file-only" {
+		// Build the diff-index command with optional paths
+		indexCmd := []string{"diff-index", "--cached", "--numstat", "--summary", reference}
+		if len(paths) > 0 {
+			indexCmd = append(indexCmd, "--")
+			indexCmd = append(indexCmd, paths...)
+		} else {
+			indexCmd = append(indexCmd, "--")
+		}
+		indexLines, err := r.RunCommandLines(indexCmd...)
+		if err != nil {
+			return nil, err
+		}
 
-	for _, line := range indexLines {
-		if err := r.parseIndexLine(line, statusMap); err != nil {
-			continue
+		for _, line := range indexLines {
+			if err := r.parseIndexLine(line, statusMap); err != nil {
+				continue
+			}
 		}
 	}
 
-	fileLines, err := r.RunCommandLines("diff-files", "--ignore-submodules=dirty", "--numstat", "--summary", "--raw", "--")
-	if err != nil {
-		return nil, err
-	}
+	// Only run diff-files if we're not doing index-only filtering
+	if filter != "index-only" {
+		// Build the diff-files command with optional paths
+		fileCmd := []string{"diff-files", "--ignore-submodules=dirty", "--numstat", "--summary", "--raw"}
+		if len(paths) > 0 {
+			fileCmd = append(fileCmd, "--")
+			fileCmd = append(fileCmd, paths...)
+		} else {
+			fileCmd = append(fileCmd, "--")
+		}
+		fileLines, err := r.RunCommandLines(fileCmd...)
+		if err != nil {
+			return nil, err
+		}
 
-	for _, line := range fileLines {
-		if err := r.parseFileLine(line, statusMap); err != nil {
-			continue
+		for _, line := range fileLines {
+			if err := r.parseFileLine(line, statusMap); err != nil {
+				continue
+			}
 		}
 	}
 

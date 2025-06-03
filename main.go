@@ -91,6 +91,15 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 			patchFlag = ""
 		}
 
+		// Check if -- was present in original args
+		hasSeparator := false
+		for _, arg := range args {
+			if arg == "--" {
+				hasSeparator = true
+				break
+			}
+		}
+
 		// Validate that -- separator is present for certain modes
 		if err := validatePatchMode(patchFlag, remaining, args); err != nil {
 			return "", "", nil, err
@@ -106,8 +115,10 @@ func processArgs(args []string) (patchMode, patchRevision string, files []string
 			patchMode, patchRevision = parsePatchReset(remaining)
 			remaining = skipRevisionAndSeparator(remaining)
 		case "checkout":
-			patchMode, patchRevision = parsePatchCheckout(remaining)
-			remaining = skipRevisionAndSeparator(remaining)
+			patchMode, patchRevision = parsePatchCheckout(remaining, hasSeparator)
+			if patchMode != "checkout_index" {
+				remaining = skipRevisionAndSeparator(remaining)
+			}
 		case "worktree":
 			patchMode, patchRevision = parsePatchWorktree(remaining)
 			remaining = skipRevisionAndSeparator(remaining)
@@ -195,8 +206,33 @@ func parsePatchReset(args []string) (mode, revision string) {
 	return "reset_nothead", revision
 }
 
-func parsePatchCheckout(args []string) (mode, revision string) {
+func parsePatchCheckout(args []string, hasSeparator bool) (mode, revision string) {
 	if len(args) == 0 || args[0] == "--" {
+		return "checkout_index", ""
+	}
+
+	// When there's a separator, we need to be careful about what we treat as a revision
+	// vs a pathspec. Common pathspecs start with special characters or look like paths
+	if hasSeparator {
+		firstArg := args[0]
+		// Check if the first argument looks like a pathspec rather than a revision
+		if strings.HasPrefix(firstArg, ":") || // pathspec magic like :(prefix:0)
+			strings.HasSuffix(firstArg, "/") || // directory paths
+			strings.Contains(firstArg, "*") || // glob patterns
+			strings.Contains(firstArg, "?") { // glob patterns
+			return "checkout_index", ""
+		}
+		// If it doesn't look like a pathspec and we have multiple args,
+		// treat the first as a revision
+		if len(args) > 1 {
+			revision = firstArg
+			if revision == "HEAD" {
+				return "checkout_head", revision
+			}
+			return "checkout_nothead", revision
+		}
+		// Single argument that doesn't look like a pathspec - could be a revision
+		// but let's be conservative and treat it as a pathspec for checkout_index
 		return "checkout_index", ""
 	}
 

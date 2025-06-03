@@ -54,7 +54,11 @@ func (r *Repository) WorkTree() string {
 func (r *Repository) RunCommand(args ...string) ([]byte, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = r.workTree
-	return cmd.Output()
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("git command failed: %v\nCommand: git %v\nOutput: %s", err, args, string(output))
+	}
+	return output, nil
 }
 
 func (r *Repository) RunCommandWithStdin(stdin []byte, args ...string) error {
